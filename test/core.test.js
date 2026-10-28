@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { acceptanceCriteria } from '../src/lib/adf.js';
-import { normalize } from '../src/lib/verifier.js';
+import { assess, normalize } from '../src/lib/verifier.js';
 import { evaluate, DEFAULT_RULES } from '../src/lib/policy.js';
 import { changesSince, ciStatus } from '../src/lib/evidence.js';
 
@@ -75,4 +75,26 @@ test('an unreadable pull request blocks the gate', () => {
   const r = evaluate(state({ pullRequests: [{ url: 'x/pull/1', state: 'unknown', ci: 'unknown' }] }), verdict);
   assert.equal(r.ready, false);
   assert.equal(r.checks.find((c) => c.id === 'github').ok, false);
+});
+
+test('assess retries an overloaded provider and falls back to the backup model', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const model = JSON.parse(init.body).model;
+    calls.push(model);
+    if (calls.length < 4) return { ok: false, status: 503, json: async () => ({ error: { message: 'overloaded' } }) };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"criteria":[{"id":"AC1","passed":true,"reason":"r"}],"confidence":0.9}' } }] }) };
+  };
+  const item = { key: 'S-1', summary: 's', criteria: [{ id: 'AC1', text: 'a' }] };
+  const out = await assess({ provider: 'gemini', apiKey: 'k' }, item, {}, fetchImpl, async () => {});
+  assert.deepEqual(calls, ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash']);
+  assert.equal(out.model, 'gemini-3.5-flash');
+  assert.equal(out.criteria[0].passed, true);
+});
+
+test('assess does not retry a rejected key', async () => {
+  let n = 0;
+  const fetchImpl = async () => { n++; return { ok: false, status: 401, json: async () => ({ error: { message: 'bad key' } }) }; };
+  await assert.rejects(assess({ provider: 'gemini', apiKey: 'k' }, { criteria: [] }, {}, fetchImpl, async () => {}), /401/);
+  assert.equal(n, 1);
 });

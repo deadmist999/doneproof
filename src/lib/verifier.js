@@ -2,7 +2,7 @@
 // whether the issue may move to Done is decided by policy.js.
 
 export const PROVIDERS = {
-  gemini: { label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.5-flash-lite', extra: { reasoning_effort: 'low' } },
+  gemini: { label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.5-flash-lite', fallback: 'gemini-3.5-flash', extra: { reasoning_effort: 'low' } },
   openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini' },
   anthropic: { label: 'Anthropic', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-haiku-5-5' },
   groq: { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
@@ -18,27 +18,42 @@ const SYSTEM = [
   'Use the exact criterion ids, cover each exactly once, keep each reason to one sentence that names the evidence.',
 ].join(' ');
 
-export async function assess({ provider, model, apiKey }, item, evidence, fetchImpl = fetch) {
+// Overloaded or rate-limited providers usually answer on a later try; the last try switches to the
+// preset's fallback model when it has one.
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+const BACKOFF_MS = [3000, 8000, 15000];
+
+export async function assess({ provider, model, apiKey }, item, evidence, fetchImpl = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms))) {
   const preset = PROVIDERS[provider];
   if (!preset || !apiKey) throw new Error('No AI provider is configured. An admin can set one in Apps → Doneproof settings.');
-  const response = await fetchImpl(`${preset.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: model || preset.model,
-      ...preset.extra,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: JSON.stringify({ workItem: { key: item.key, summary: item.summary, criteria: item.criteria }, evidence }) },
-      ],
-    }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`The AI provider refused the request (${response.status}): ${body.error?.message ?? 'no details'}`);
-  const raw = body.choices?.[0]?.message?.content ?? '';
-  return { ...normalize(item.criteria, parseJson(raw)), model: model || preset.model };
+  const primary = model || preset.model;
+  for (let attempt = 0; ; attempt++) {
+    const last = attempt === BACKOFF_MS.length;
+    const useModel = last && !model && preset.fallback ? preset.fallback : primary;
+    const response = await fetchImpl(`${preset.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: useModel,
+        ...preset.extra,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: JSON.stringify({ workItem: { key: item.key, summary: item.summary, criteria: item.criteria }, evidence }) },
+        ],
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      const raw = body.choices?.[0]?.message?.content ?? '';
+      return { ...normalize(item.criteria, parseJson(raw)), model: useModel };
+    }
+    if (last || !RETRYABLE.has(response.status)) {
+      throw new Error(`The AI provider refused the request (${response.status}): ${body.error?.message ?? body[0]?.error?.message ?? 'no details'}`);
+    }
+    await wait(BACKOFF_MS[attempt]);
+  }
 }
 
 // Some models wrap JSON in a code fence even in JSON mode.
