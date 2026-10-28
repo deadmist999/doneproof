@@ -40,13 +40,11 @@ async function settings() {
   return { provider: saved.provider ?? 'gemini', model: saved.model ?? '', rules: { ...DEFAULT_RULES, ...saved.rules } };
 }
 
-// A site's own key wins. Without one, the app's bundled Gemini key (a Forge environment variable)
-// lets a fresh install verify work items straight away.
+// Every site brings its own key: a shared free-tier key would hand customers' work items to a provider
+// that may train on them, and Gemini's free tier is barred for apps offered in the EEA, UK and Switzerland.
 async function aiConfig(config) {
   const siteKey = await kvs.getSecret('ai-key');
-  if (siteKey) return { provider: config.provider, model: config.model, apiKey: siteKey, source: 'site' };
-  if (process.env.DONEPROOF_AI_KEY) return { provider: 'gemini', model: '', apiKey: process.env.DONEPROOF_AI_KEY, source: 'bundled' };
-  return null;
+  return siteKey ? { provider: config.provider, model: config.model, apiKey: siteKey } : null;
 }
 
 // The issue property is what JQL and other tools see, but Jira serves it eventually consistent;
@@ -121,7 +119,6 @@ resolver.define('getSettings', async () => {
     ...config,
     providers: PROVIDERS,
     hasKey: Boolean(await kvs.getSecret('ai-key')),
-    bundled: Boolean(process.env.DONEPROOF_AI_KEY),
     hasGithubToken: Boolean(await kvs.getSecret('github-token')),
   };
 });
@@ -230,6 +227,7 @@ export async function requestVerification(payload) {
   const key = issueKeyFrom(payload);
   const { state } = await gather(key, api.asUser());
   if (!state.item.criteria.length) return { workItem: key, started: false, reason: 'The work item has no acceptance criteria to verify.' };
+  if (!(await aiConfig(await settings()))) return { workItem: key, started: false, reason: 'No AI provider is configured. A Jira admin can add an API key in Doneproof settings.' };
   await startVerification(key, payload.context?.accountId);
   return { workItem: key, started: true, note: 'Verification takes up to a minute. Check the status again to see the verdict.' };
 }

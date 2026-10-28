@@ -44,15 +44,16 @@ If anything can't be evaluated, the transition is blocked rather than allowed.
 ## Install and set up
 
 1. Install Doneproof on your Jira Cloud site.
-2. Open **Jira settings → Apps → Doneproof settings** and click **Turn on** next to the workflows your teams use. Doneproof adds its validator to every transition into a Done status. (You can also add the **Doneproof gate** validator by hand in the workflow editor.)
-3. Write acceptance criteria as a bullet list under an **Acceptance criteria** heading in the description, and link the pull request (paste its URL as a link or in a comment).
-4. Open the **Doneproof** panel on the work item and click **Verify with AI**.
+2. Open **Jira settings → Apps → Doneproof settings**, choose an AI provider and paste its API key.
+3. On the same page, click **Turn on** next to the workflows your teams use. Doneproof adds its validator to every transition into a Done status. (You can also add the **Doneproof gate** validator by hand in the workflow editor.)
+4. Write acceptance criteria as a bullet list under an **Acceptance criteria** heading in the description, and link the pull request (paste its URL as a link or in a comment).
+5. Open the **Doneproof** panel on the work item and click **Verify with AI**.
 
-Doneproof works out of the box with a built-in Gemini model. To use your own provider, open **Doneproof settings** and pick Google Gemini, OpenAI, Anthropic, Groq, OpenRouter or Mistral, then paste an API key. Keys are stored as Forge secrets and sent only to that provider.
+Doneproof uses your own AI provider: open **Doneproof settings**, pick Google Gemini, OpenAI, Anthropic, Groq, OpenRouter or Mistral, and paste an API key. The key is stored as a Forge secret and data is sent only to that provider. There is no shared key: some free tiers let the provider use what you send to improve its models (and Gemini's free tier can't be used for apps offered in the EEA, UK or Switzerland), so each site decides which provider and plan sees its work items.
 
 ## What data leaves Jira
 
-When you click **Verify**, the work item's summary, acceptance criteria, description, latest 20 comments, link titles and URLs, attachment names, subtask and blocker statuses, and the linked pull requests' title, description, CI results and up to 6,000 characters of diff are sent to the configured AI provider. Nothing is sent at any other time. GitHub is read through its public API (or with your token for private repositories).
+When you click **Verify**, the work item's summary, acceptance criteria, description, latest 20 comments, link titles and URLs, attachment names, subtask and blocker statuses, and the linked pull requests' title, description, CI results and up to 6,000 characters of diff are sent to the AI provider you configured, with your key. Nothing is sent at any other time, and nothing is sent anywhere until an admin adds a key. The developer runs no servers and never receives your data. Details: [PRIVACY.md](PRIVACY.md). GitHub is read through its public API (or with your token for private repositories).
 
 ## Development
 
@@ -60,12 +61,17 @@ When you click **Verify**, the work item's summary, acceptance criteria, descrip
 npm install
 npm test                       # unit tests for criteria parsing, verdict normalisation and the gate
 forge deploy && forge install  # needs the Forge CLI and an Atlassian developer site
-forge variables set --encrypt DONEPROOF_AI_KEY <gemini key>   # optional built-in provider
+forge variables set --encrypt DONEPROOF_GITHUB_TOKEN <token>   # read-only token for public repos (avoids shared-IP rate limits)
 ```
 
 Code map: `src/lib/adf.js` (criteria from the description), `src/lib/evidence.js` (Jira + GitHub evidence and the fingerprint), `src/lib/verifier.js` (AI call and fail-closed normalisation), `src/lib/policy.js` (the gate), `src/lib/workflows.js` (one-click gate setup), `src/index.js` (resolvers, queue worker, validator, Rovo actions), `src/frontend/` (panel and settings).
 
 A demo repository with a real pull request and CI is at [deadmist999/shop-checkout-demo](https://github.com/deadmist999/shop-checkout-demo).
+
+## Support, privacy and terms
+
+- Support: [GitHub issues](https://github.com/deadmist999/doneproof/issues)
+- [Privacy policy](PRIVACY.md) · [Terms of use](TERMS.md)
 
 ## License
 

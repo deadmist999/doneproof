@@ -122,7 +122,7 @@ function App() {
             <HelperMessage>{`Leave empty to use ${preset.model}.`}</HelperMessage>
             <Label labelFor={getFieldId('apiKey')}>API key</Label>
             <Textfield {...register('apiKey')} type="password" placeholder={config.hasKey ? 'Saved — enter a new key to replace it' : 'Paste your API key'} />
-            <HelperMessage>{config.hasKey ? 'Stored as a Forge secret. It is sent only to the provider above.' : config.bundled ? 'Until you add a key, Doneproof uses its built-in Gemini access, so you can try it right away.' : 'Stored as a Forge secret. It is sent only to the provider above.'}</HelperMessage>
+            <HelperMessage>Stored as a Forge secret and sent only to the provider above. Free tiers may let the provider use what you send to improve its models; use a paid key for confidential work.</HelperMessage>
           </FormSection>
           <FormSection>
             <Heading size="small">GitHub</Heading>
