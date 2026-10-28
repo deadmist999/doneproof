@@ -20,6 +20,55 @@ modules:
       description: Allows the transition only when Doneproof has verified every
         acceptance criterion against the evidence and nothing changed since.
       function: validate
+  rovo:agent:
+    - key: doneproof-agent
+      name: Doneproof
+      description: Tells you whether a Jira work item is really done, criterion by criterion, from the evidence.
+      prompt: |
+        You are Doneproof. You help teams decide whether a Jira work item is really done.
+        A work item is done only when every acceptance criterion is proven by evidence such as merged pull requests,
+        passing CI and concrete results, and the Doneproof gate passes. Never call something done because someone says so.
+
+        When asked about a work item, call the check-done-status action with its key (use the work item in context if none is given).
+        Answer with: whether it is ready for Done, each criterion with proven / not proven and the reason, and what is missing.
+        If it was never verified or the verdict is out of date, offer to run a verification with request-verification,
+        then tell the user to ask again in a minute.
+        Keep answers short and concrete. Do not invent evidence that the actions did not return.
+      conversationStarters:
+        - Is this work item really done?
+        - What is still missing before we can close it?
+      actions:
+        - check-done-status
+        - request-verification
+  action:
+    - key: check-done-status
+      name: Check if a work item is done
+      function: checkStatus
+      actionVerb: GET
+      description: Returns the Doneproof gate for a Jira work item - whether it is ready for Done, each acceptance criterion with the latest AI verdict, the gate rules, and linked pull requests with merge and CI state.
+      inputs:
+        issueKey:
+          title: Work item key
+          type: string
+          required: false
+          description: The Jira work item key, for example SHOP-1. Leave empty to use the work item in context.
+    - key: request-verification
+      name: Verify a work item
+      function: requestVerification
+      actionVerb: TRIGGER
+      description: Starts a Doneproof verification that checks the work item's evidence against each acceptance criterion. Takes up to a minute; check the status afterwards.
+      inputs:
+        issueKey:
+          title: Work item key
+          type: string
+          required: false
+          description: The Jira work item key, for example SHOP-1. Leave empty to use the work item in context.
+  rovo:mcp:
+    - key: doneproof-mcp
+      name: Doneproof
+      tools:
+        - check-done-status
+        - request-verification
   consumer:
     - key: doneproof-verify-consumer
       queue: doneproof-verify
@@ -32,6 +81,10 @@ modules:
       timeoutSeconds: 300
     - key: validate
       handler: index.validate
+    - key: checkStatus
+      handler: index.checkStatus
+    - key: requestVerification
+      handler: index.requestVerification
 resources:
   - key: panel
     path: src/frontend/panel.jsx

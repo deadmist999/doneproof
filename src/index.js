@@ -83,16 +83,19 @@ resolver.define('verify', async ({ context }) => {
   const key = context.extension.issue.key;
   const data = await gather(key, api.asUser());
   if (!data.state.item.criteria.length) throw new Error('This work item has no acceptance criteria to verify.');
-  if ((await jobOf(key))?.status !== 'running') {
-    await kvs.set(`job:${key}`, { status: 'running', startedAt: new Date().toISOString() });
-    try {
-      await queue.push({ body: { key, accountId: context.accountId } });
-    } catch (error) {
-      await kvs.set(`job:${key}`, { status: 'failed', error: `Could not start the verification: ${error.message}` });
-    }
-  }
+  await startVerification(key, context.accountId);
   return view(key, data);
 });
+
+async function startVerification(key, accountId) {
+  if ((await jobOf(key))?.status === 'running') return;
+  await kvs.set(`job:${key}`, { status: 'running', startedAt: new Date().toISOString() });
+  try {
+    await queue.push({ body: { key, accountId } });
+  } catch (error) {
+    await kvs.set(`job:${key}`, { status: 'failed', error: `Could not start the verification: ${error.message}` });
+  }
+}
 
 async function isAdmin() {
   const response = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
@@ -159,4 +162,42 @@ export async function validate(args) {
   } catch (error) {
     return { result: false, errorMessage: `Doneproof could not check this work item (${error.message}). Try again, or ask an admin.` };
   }
+}
+
+// Rovo actions, also exposed as MCP tools. The issue key comes from the model, so it is checked
+// against the key format and read as the calling user, who must be able to see the work item.
+const ISSUE_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
+
+function issueKeyFrom(payload) {
+  const key = String(payload.issueKey ?? payload.context?.jira?.issueKey ?? '').trim().toUpperCase();
+  if (!ISSUE_KEY.test(key)) throw new Error('Give a Jira work item key such as SHOP-1.');
+  return key;
+}
+
+export async function checkStatus(payload) {
+  const key = issueKeyFrom(payload);
+  const data = await gather(key, api.asUser());
+  const { gate, verdict, evidence, job } = await view(key, data);
+  const fresh = gate.checks.find((c) => c.id === 'fresh')?.ok;
+  return {
+    workItem: key,
+    summary: data.state.item.summary,
+    readyForDone: gate.ready,
+    gate: gate.checks.map(({ label, ok, detail }) => ({ rule: label, passed: ok, detail })),
+    criteria: data.state.item.criteria.map((c) => {
+      const v = fresh ? verdict?.criteria.find((x) => x.id === c.id) : null;
+      return { criterion: c.text, proven: v ? v.passed : null, reason: v?.reason ?? (verdict ? 'Verdict is out of date' : 'Not verified yet') };
+    }),
+    pullRequests: evidence.pullRequests.map(({ url, state, ci, approvals }) => ({ url, state, ci, approvals })),
+    lastVerified: verdict?.verifiedAt ?? null,
+    verificationRunning: job?.status === 'running',
+  };
+}
+
+export async function requestVerification(payload) {
+  const key = issueKeyFrom(payload);
+  const { state } = await gather(key, api.asUser());
+  if (!state.item.criteria.length) return { workItem: key, started: false, reason: 'The work item has no acceptance criteria to verify.' };
+  await startVerification(key, payload.context?.accountId);
+  return { workItem: key, started: true, note: 'Verification takes up to a minute. Check the status again to see the verdict.' };
 }
