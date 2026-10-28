@@ -1,0 +1,162 @@
+import api, { assumeTrustedRoute, fetch, route } from '@forge/api';
+import Resolver from '@forge/resolver';
+import { kvs } from '@forge/kvs';
+import { Queue } from '@forge/events';
+import { collect } from './lib/evidence.js';
+import { assess, PROVIDERS } from './lib/verifier.js';
+import { blockMessage, DEFAULT_RULES, evaluate } from './lib/policy.js';
+
+const PROPERTY = 'doneproof';
+const queue = new Queue({ key: 'doneproof-verify' });
+// A job that hasn't reported back in this long died with its worker.
+const JOB_TTL_MS = 5 * 60 * 1000;
+
+// Paths are built in evidence.js from the issue key Forge hands us, never from user input.
+const jiraAs = (actor) => async (path) => {
+  const response = await actor.requestJira(assumeTrustedRoute(path), { headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`Jira ${response.status} on ${path.split('?')[0]}`);
+  return response.status === 204 ? null : response.json();
+};
+
+const githubWith = (token) => async (path) => {
+  const response = await fetch(`https://api.github.com${path}`, {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'doneproof-forge-app', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  if (!response.ok) throw new Error(`GitHub ${response.status}`);
+  return response.json();
+};
+
+async function settings() {
+  const saved = (await kvs.get('settings')) ?? {};
+  return { provider: saved.provider ?? 'gemini', model: saved.model ?? '', rules: { ...DEFAULT_RULES, ...saved.rules } };
+}
+
+// A site's own key wins. Without one, the app's bundled Gemini key (a Forge environment variable)
+// lets a fresh install verify work items straight away.
+async function aiConfig(config) {
+  const siteKey = await kvs.getSecret('ai-key');
+  if (siteKey) return { provider: config.provider, model: config.model, apiKey: siteKey, source: 'site' };
+  if (process.env.DONEPROOF_AI_KEY) return { provider: 'gemini', model: '', apiKey: process.env.DONEPROOF_AI_KEY, source: 'bundled' };
+  return null;
+}
+
+async function verdictOf(key, jira) {
+  try {
+    return (await jira(`/rest/api/3/issue/${key}/properties/${PROPERTY}`))?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function gather(key, actor) {
+  const jira = jiraAs(actor);
+  const github = githubWith(await kvs.getSecret('github-token'));
+  const [state, verdict, config] = await Promise.all([collect(key, { jira, github }), verdictOf(key, jira), settings()]);
+  return { state, verdict, config };
+}
+
+async function jobOf(key) {
+  const job = await kvs.get(`job:${key}`);
+  if (job?.status === 'running' && Date.now() - Date.parse(job.startedAt) > JOB_TTL_MS) return { status: 'failed', error: 'The verification timed out. Try again.' };
+  return job ?? null;
+}
+
+async function view(key, { state, verdict, config }) {
+  return {
+    item: state.item,
+    evidence: state.evidence,
+    verdict,
+    gate: evaluate(state, verdict, config.rules),
+    job: await jobOf(key),
+    aiReady: Boolean(await aiConfig(config)),
+  };
+}
+
+const resolver = new Resolver();
+
+resolver.define('getState', async ({ context }) => {
+  const key = context.extension.issue.key;
+  return view(key, await gather(key, api.asUser()));
+});
+
+resolver.define('verify', async ({ context }) => {
+  const key = context.extension.issue.key;
+  const data = await gather(key, api.asUser());
+  if (!data.state.item.criteria.length) throw new Error('This work item has no acceptance criteria to verify.');
+  if ((await jobOf(key))?.status !== 'running') {
+    await kvs.set(`job:${key}`, { status: 'running', startedAt: new Date().toISOString() });
+    try {
+      await queue.push({ body: { key, accountId: context.accountId } });
+    } catch (error) {
+      await kvs.set(`job:${key}`, { status: 'failed', error: `Could not start the verification: ${error.message}` });
+    }
+  }
+  return view(key, data);
+});
+
+async function isAdmin() {
+  const response = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
+  return (await response.json()).permissions?.ADMINISTER?.havePermission === true;
+}
+
+resolver.define('getSettings', async () => {
+  const config = await settings();
+  return {
+    ...config,
+    providers: PROVIDERS,
+    hasKey: Boolean(await kvs.getSecret('ai-key')),
+    bundled: Boolean(process.env.DONEPROOF_AI_KEY),
+    hasGithubToken: Boolean(await kvs.getSecret('github-token')),
+  };
+});
+
+resolver.define('saveSettings', async ({ payload }) => {
+  if (!(await isAdmin())) throw new Error('Only Jira admins can change Doneproof settings.');
+  if (!PROVIDERS[payload.provider]) throw new Error('Unknown AI provider.');
+  const threshold = Math.min(1, Math.max(0.5, Number(payload.rules?.threshold ?? DEFAULT_RULES.threshold)));
+  await kvs.set('settings', {
+    provider: payload.provider,
+    model: String(payload.model ?? '').trim(),
+    rules: { ...DEFAULT_RULES, ...payload.rules, threshold },
+  });
+  if (payload.apiKey) await kvs.setSecret('ai-key', payload.apiKey.trim());
+  if (payload.clearApiKey) await kvs.deleteSecret('ai-key');
+  if (payload.githubToken) await kvs.setSecret('github-token', payload.githubToken.trim());
+  if (payload.clearGithubToken) await kvs.deleteSecret('github-token');
+  return { ok: true };
+});
+
+export const handler = resolver.getDefinitions();
+
+// Queue consumer: the AI call can take longer than a UI resolver may run, so it happens here.
+export async function workerHandler(event) {
+  const { key, accountId } = event.body;
+  try {
+    const { state, config } = await gather(key, api.asApp());
+    const ai = await aiConfig(config);
+    if (!ai) throw new Error('No AI provider is configured. An admin can add a key in Doneproof settings.');
+    const result = await assess(ai, state.item, state.evidence, fetch);
+    const verdict = { ...result, fingerprint: state.fingerprint, verifiedAt: new Date().toISOString(), verifiedBy: accountId };
+    const saved = await api.asApp().requestJira(route`/rest/api/3/issue/${key}/properties/${PROPERTY}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(verdict),
+    });
+    if (!saved.ok) throw new Error(`Jira refused to store the verdict (${saved.status})`);
+    await kvs.set(`job:${key}`, { status: 'done', finishedAt: verdict.verifiedAt });
+  } catch (error) {
+    await kvs.set(`job:${key}`, { status: 'failed', error: error.message });
+  }
+}
+
+// Workflow validator: the transition goes through only when the gate passes on evidence collected
+// right now. Any failure to evaluate blocks the transition rather than letting it through.
+export async function validate(args) {
+  try {
+    const { state, verdict, config } = await gather(args.issue.key, api.asApp());
+    const result = evaluate(state, verdict, config.rules);
+    return result.ready ? { result: true } : { result: false, errorMessage: blockMessage(result) };
+  } catch (error) {
+    return { result: false, errorMessage: `Doneproof could not check this work item (${error.message}). Try again, or ask an admin.` };
+  }
+}

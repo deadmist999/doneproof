@@ -1,0 +1,63 @@
+modules:
+  jira:issuePanel:
+    - key: doneproof-panel
+      resource: panel
+      resolver:
+        function: resolver
+      render: native
+      title: Doneproof
+      icon: resource:icons;doneproof.svg
+  jira:adminPage:
+    - key: doneproof-settings
+      resource: admin
+      resolver:
+        function: resolver
+      render: native
+      title: Doneproof settings
+  jira:workflowValidator:
+    - key: doneproof-gate
+      name: Doneproof gate
+      description: Allows the transition only when Doneproof has verified every
+        acceptance criterion against the evidence and nothing changed since.
+      function: validate
+  consumer:
+    - key: doneproof-verify-consumer
+      queue: doneproof-verify
+      function: worker
+  function:
+    - key: resolver
+      handler: index.handler
+    - key: worker
+      handler: index.workerHandler
+      timeoutSeconds: 300
+    - key: validate
+      handler: index.validate
+resources:
+  - key: panel
+    path: src/frontend/panel.jsx
+  - key: admin
+    path: src/frontend/admin.jsx
+  - key: icons
+    path: static/icons
+permissions:
+  scopes:
+    - read:jira-work
+    - write:jira-work
+    - read:jira-user
+    - storage:app
+  external:
+    fetch:
+      backend:
+        - address: api.github.com
+        - address: generativelanguage.googleapis.com
+        - address: api.openai.com
+        - address: api.anthropic.com
+        - address: api.groq.com
+        - address: openrouter.ai
+        - address: api.mistral.ai
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/758315e3-1952-4126-89eb-688055a2ca23
