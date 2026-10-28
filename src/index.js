@@ -166,7 +166,9 @@ export async function workerHandler(event) {
     if (!ai) throw new Error('No AI provider is configured. An admin can add a key in Doneproof settings.');
     const result = await assess(ai, state.item, state.evidence, fetch);
     const allProven = result.criteria.every((c) => c.passed) ? 'yes' : 'no';
-    const verdict = { ...result, allProven, fingerprint: state.fingerprint, basis: state.basis, verifiedAt: new Date().toISOString(), verifiedBy: accountId };
+    const verifiedAt = new Date().toISOString();
+    // Jira's date index takes a plain yyyy-MM-dd, not an ISO timestamp.
+    const verdict = { ...result, allProven, fingerprint: state.fingerprint, basis: state.basis, verifiedAt, verifiedOn: verifiedAt.slice(0, 10), verifiedBy: accountId };
     const saved = await api.asApp().requestJira(route`/rest/api/3/issue/${key}/properties/${PROPERTY}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

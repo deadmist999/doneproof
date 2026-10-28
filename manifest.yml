@@ -80,7 +80,7 @@ modules:
         - path: confidence
           type: number
           searchAlias: doneproofConfidence
-        - path: verifiedAt
+        - path: verifiedOn
           type: date
           searchAlias: doneproofVerifiedAt
   consumer:
