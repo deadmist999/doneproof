@@ -49,12 +49,15 @@ async function aiConfig(config) {
   return null;
 }
 
+// The issue property is what JQL and other tools see, but Jira serves it eventually consistent;
+// the app's own copy is read too and the newer of the two wins.
 async function verdictOf(key, jira) {
-  try {
-    return (await jira(`/rest/api/3/issue/${key}/properties/${PROPERTY}`))?.value ?? null;
-  } catch {
-    return null;
-  }
+  const [property, own] = await Promise.all([
+    jira(`/rest/api/3/issue/${key}/properties/${PROPERTY}`).then((r) => r?.value ?? null, () => null),
+    kvs.get(`verdict:${key}`),
+  ]);
+  if (!property || !own) return property ?? own ?? null;
+  return Date.parse(own.verifiedAt) > Date.parse(property.verifiedAt) ? own : property;
 }
 
 async function gather(key, actor) {
@@ -170,6 +173,7 @@ export async function workerHandler(event) {
       body: JSON.stringify(verdict),
     });
     if (!saved.ok) throw new Error(`Jira refused to store the verdict (${saved.status})`);
+    await kvs.set(`verdict:${key}`, verdict);
     const entry = { at: verdict.verifiedAt, proven: verdict.criteria.filter((c) => c.passed).length, total: verdict.criteria.length, confidence: verdict.confidence, model: verdict.model };
     await kvs.set(`history:${key}`, [entry, ...((await kvs.get(`history:${key}`)) ?? [])].slice(0, HISTORY));
     await kvs.set(`job:${key}`, { status: 'done', finishedAt: verdict.verifiedAt });
