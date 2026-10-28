@@ -1,6 +1,8 @@
 // The gate. Deterministic rules over the stored verdict and freshly collected evidence; the AI
 // never decides on its own whether work is done.
 
+import { changesSince } from './evidence.js';
+
 export const DEFAULT_RULES = {
   threshold: 0.8,
   requireMergedPrs: true,
@@ -9,7 +11,7 @@ export const DEFAULT_RULES = {
   requireBlockersDone: true,
 };
 
-export function evaluate({ item, evidence, fingerprint }, verdict, rules = DEFAULT_RULES) {
+export function evaluate({ item, evidence, basis, fingerprint }, verdict, rules = DEFAULT_RULES) {
   const prs = evidence.pullRequests;
   const checks = [
     {
@@ -34,7 +36,7 @@ export function evaluate({ item, evidence, fingerprint }, verdict, rules = DEFAU
       id: 'fresh',
       label: 'Nothing changed since the verification',
       ok: Boolean(verdict) && verdict.fingerprint === fingerprint,
-      detail: !verdict ? '—' : verdict.fingerprint === fingerprint ? 'Up to date' : 'Criteria or evidence changed; verify again',
+      detail: !verdict ? '—' : verdict.fingerprint === fingerprint ? 'Up to date' : staleDetail(verdict.basis, basis),
     },
   ];
   if (rules.requireMergedPrs && prs.length) {
@@ -54,6 +56,11 @@ export function evaluate({ item, evidence, fingerprint }, verdict, rules = DEFAU
     checks.push({ id: 'blockers', label: 'Nothing is blocking it', ok: !left.length, detail: left.length ? `Blocked by ${left.map((b) => b.key).join(', ')}` : 'Blockers resolved' });
   }
   return { ready: checks.every((c) => c.ok), checks };
+}
+
+function staleDetail(before, now) {
+  const changes = now ? changesSince(before, now) : [];
+  return changes.length ? `Changed since: ${changes.join(', ')}` : 'Criteria or evidence changed; verify again';
 }
 
 const prName = (p) => `#${p.url.split('/').pop()}`;

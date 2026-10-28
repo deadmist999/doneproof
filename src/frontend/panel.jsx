@@ -82,6 +82,21 @@ function Gate({ gate }) {
   );
 }
 
+function History({ history }) {
+  if (history.length < 2) return null;
+  return (
+    <Stack space="space.050">
+      <Heading size="xsmall">Verification history</Heading>
+      {history.map((h) => (
+        <Inline key={h.at} space="space.100" alignBlock="center">
+          <Lozenge appearance={h.proven === h.total ? 'success' : 'removed'}>{`${h.proven}/${h.total} proven`}</Lozenge>
+          <Text size="small" color="color.text.subtle">{`${when(h.at)} · ${Math.round(h.confidence * 100)}% confidence`}</Text>
+        </Inline>
+      ))}
+    </Stack>
+  );
+}
+
 function App() {
   const [data, setData] = useState(null);
   const [failure, setFailure] = useState(null);
@@ -129,6 +144,7 @@ function App() {
       {verdict?.summary && fresh && <Text color="color.text.subtle">{verdict.summary}</Text>}
       <Evidence evidence={evidence} />
       <Gate gate={gate} />
+      <History history={data.history} />
       {verdict && <Text size="small" color="color.text.subtlest">{`Last verified ${when(verdict.verifiedAt)} by ${verdict.model}`}</Text>}
     </Stack>
   );

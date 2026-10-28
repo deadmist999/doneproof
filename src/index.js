@@ -10,6 +10,7 @@ const PROPERTY = 'doneproof';
 const queue = new Queue({ key: 'doneproof-verify' });
 // A job that hasn't reported back in this long died with its worker.
 const JOB_TTL_MS = 5 * 60 * 1000;
+const HISTORY = 10;
 
 // Paths are built in evidence.js from the issue key Forge hands us, never from user input.
 const jiraAs = (actor) => async (path) => {
@@ -68,6 +69,7 @@ async function view(key, { state, verdict, config }) {
     verdict,
     gate: evaluate(state, verdict, config.rules),
     job: await jobOf(key),
+    history: (await kvs.get(`history:${key}`)) ?? [],
     aiReady: Boolean(await aiConfig(config)),
   };
 }
@@ -139,13 +141,15 @@ export async function workerHandler(event) {
     const ai = await aiConfig(config);
     if (!ai) throw new Error('No AI provider is configured. An admin can add a key in Doneproof settings.');
     const result = await assess(ai, state.item, state.evidence, fetch);
-    const verdict = { ...result, fingerprint: state.fingerprint, verifiedAt: new Date().toISOString(), verifiedBy: accountId };
+    const verdict = { ...result, fingerprint: state.fingerprint, basis: state.basis, verifiedAt: new Date().toISOString(), verifiedBy: accountId };
     const saved = await api.asApp().requestJira(route`/rest/api/3/issue/${key}/properties/${PROPERTY}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(verdict),
     });
     if (!saved.ok) throw new Error(`Jira refused to store the verdict (${saved.status})`);
+    const entry = { at: verdict.verifiedAt, proven: verdict.criteria.filter((c) => c.passed).length, total: verdict.criteria.length, confidence: verdict.confidence, model: verdict.model };
+    await kvs.set(`history:${key}`, [entry, ...((await kvs.get(`history:${key}`)) ?? [])].slice(0, HISTORY));
     await kvs.set(`job:${key}`, { status: 'done', finishedAt: verdict.verifiedAt });
   } catch (error) {
     await kvs.set(`job:${key}`, { status: 'failed', error: error.message });

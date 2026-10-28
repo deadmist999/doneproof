@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { acceptanceCriteria } from '../src/lib/adf.js';
 import { normalize } from '../src/lib/verifier.js';
 import { evaluate, DEFAULT_RULES } from '../src/lib/policy.js';
-import { ciStatus } from '../src/lib/evidence.js';
+import { changesSince, ciStatus } from '../src/lib/evidence.js';
 
 const text = (t) => ({ type: 'text', text: t });
 const para = (t) => ({ type: 'paragraph', content: [text(t)] });
@@ -62,4 +62,11 @@ test('CI status summarises check runs', () => {
   assert.equal(ciStatus([{ status: 'in_progress' }]), 'running');
   assert.equal(ciStatus([{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'failure' }]), 'failed');
   assert.equal(ciStatus([{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'skipped' }]), 'passed');
+});
+
+test('changesSince names what moved since the verdict', () => {
+  const before = { criteria: ['a'], comments: [['1', 't1']], links: ['x'], subtasks: [['S-2', 'To Do']], blockedBy: [], pullRequests: [['https://github.com/o/r/pull/1', 'sha1', 'open', 'failed', 0]] };
+  const now = { criteria: ['a'], comments: [['1', 't1'], ['2', 't2']], links: ['x'], subtasks: [['S-2', 'Done']], blockedBy: [], pullRequests: [['https://github.com/o/r/pull/1', 'sha2', 'merged', 'passed', 0]] };
+  assert.deepEqual(changesSince(before, now), ['1 new comment', 'PR #1: open → merged', 'PR #1 CI: failed → passed', 'S-2 is now Done']);
+  assert.deepEqual(changesSince(before, before), []);
 });

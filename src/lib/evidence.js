@@ -34,7 +34,8 @@ export async function collect(key, { jira, github }) {
       .map((l) => ({ key: l.inwardIssue.key, status: l.inwardIssue.fields?.status?.name, done: l.inwardIssue.fields?.status?.statusCategory?.key === 'done' })),
     pullRequests,
   };
-  return { item: { key, summary: f.summary, criteria }, evidence, fingerprint: fingerprint(criteria, comments.comments ?? [], evidence) };
+  const basis = basisOf(criteria, comments.comments ?? [], evidence);
+  return { item: { key, summary: f.summary, criteria }, evidence, basis, fingerprint: fingerprint(basis) };
 }
 
 async function pullRequest(url, github) {
@@ -81,10 +82,10 @@ export function ciStatus(runs) {
   return 'passed';
 }
 
-// Changes when the criteria or the evidence change, so a verdict can't be reused after someone
-// edits the criteria, adds a comment or pushes to the pull request.
-function fingerprint(criteria, comments, evidence) {
-  const basis = {
+// What a verdict depends on. It changes when someone edits the criteria, adds a comment or a link,
+// closes a subtask or pushes to a pull request, so a verdict can't be reused after the facts move.
+function basisOf(criteria, comments, evidence) {
+  return {
     criteria: criteria.map((c) => c.text),
     comments: comments.map((c) => [c.id, c.updated]),
     links: evidence.links.map((l) => l.url).sort(),
@@ -92,5 +93,39 @@ function fingerprint(criteria, comments, evidence) {
     blockedBy: evidence.blockedBy.map((b) => [b.key, b.status]),
     pullRequests: evidence.pullRequests.map((p) => [p.url, p.headSha, p.state, p.ci, p.approvals]),
   };
+}
+
+export function fingerprint(basis) {
   return createHash('sha256').update(JSON.stringify(basis)).digest('hex').slice(0, 16);
+}
+
+// Plain-language list of what moved between the verdict's basis and now.
+export function changesSince(before, now) {
+  if (!before) return [];
+  const out = [];
+  if (JSON.stringify(before.criteria) !== JSON.stringify(now.criteria)) out.push('acceptance criteria edited');
+  const oldComments = new Map(before.comments.map(([id, at]) => [id, at]));
+  const added = now.comments.filter(([id]) => !oldComments.has(id)).length;
+  const edited = now.comments.filter(([id, at]) => oldComments.has(id) && oldComments.get(id) !== at).length;
+  if (added) out.push(`${added} new comment${added > 1 ? 's' : ''}`);
+  if (edited) out.push(`${edited} comment${edited > 1 ? 's' : ''} edited`);
+  const nowIds = new Set(now.comments.map(([id]) => id));
+  const deleted = before.comments.filter(([id]) => !nowIds.has(id)).length;
+  if (deleted) out.push(`${deleted} comment${deleted > 1 ? 's' : ''} deleted`);
+  const newLinks = now.links.filter((l) => !before.links.includes(l)).length;
+  if (newLinks) out.push(`${newLinks} new link${newLinks > 1 ? 's' : ''}`);
+  const oldPrs = new Map(before.pullRequests.map((p) => [p[0], p]));
+  for (const [url, sha, state, ci] of now.pullRequests) {
+    const name = `PR #${url.split('/').pop()}`;
+    const old = oldPrs.get(url);
+    if (!old) { out.push(`${name} linked`); continue; }
+    if (old[2] !== state) out.push(`${name}: ${old[2]} → ${state}`);
+    else if (old[1] !== sha) out.push(`${name}: new commits`);
+    if (old[3] !== ci) out.push(`${name} CI: ${old[3]} → ${ci}`);
+  }
+  const oldSub = new Map(before.subtasks);
+  for (const [key, status] of now.subtasks) if (oldSub.get(key) !== status) out.push(`${key} is now ${status}`);
+  const oldBlock = new Map(before.blockedBy);
+  for (const [key, status] of now.blockedBy) if (oldBlock.get(key) !== status) out.push(`blocker ${key} is now ${status}`);
+  return out;
 }
