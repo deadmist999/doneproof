@@ -98,6 +98,7 @@ permissions:
     - write:jira-work
     - read:jira-user
     - storage:app
+    - manage:jira-configuration
   external:
     fetch:
       backend:

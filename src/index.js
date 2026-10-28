@@ -5,6 +5,7 @@ import { Queue } from '@forge/events';
 import { collect } from './lib/evidence.js';
 import { assess, PROVIDERS } from './lib/verifier.js';
 import { blockMessage, DEFAULT_RULES, evaluate } from './lib/policy.js';
+import { listWorkflows, setGate } from './lib/workflows.js';
 
 const PROPERTY = 'doneproof';
 const queue = new Queue({ key: 'doneproof-verify' });
@@ -13,9 +14,16 @@ const JOB_TTL_MS = 5 * 60 * 1000;
 const HISTORY = 10;
 
 // Paths are built in evidence.js from the issue key Forge hands us, never from user input.
-const jiraAs = (actor) => async (path) => {
-  const response = await actor.requestJira(assumeTrustedRoute(path), { headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new Error(`Jira ${response.status} on ${path.split('?')[0]}`);
+const jiraAs = (actor) => async (path, { method = 'GET', body } = {}) => {
+  const response = await actor.requestJira(assumeTrustedRoute(path), {
+    method,
+    headers: { Accept: 'application/json', ...(body && { 'Content-Type': 'application/json' }) },
+    ...(body && { body: JSON.stringify(body) }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(`Jira ${response.status} on ${path.split('?')[0]}${detail.errorMessages?.length ? `: ${detail.errorMessages.join(' ')}` : ''}`);
+  }
   return response.status === 204 ? null : response.json();
 };
 
@@ -129,6 +137,17 @@ resolver.define('saveSettings', async ({ payload }) => {
   if (payload.githubToken) await kvs.setSecret('github-token', payload.githubToken.trim());
   if (payload.clearGithubToken) await kvs.deleteSecret('github-token');
   return { ok: true };
+});
+
+resolver.define('getWorkflows', async () => {
+  if (!(await isAdmin())) throw new Error('Only Jira admins can manage workflows.');
+  return listWorkflows(jiraAs(api.asUser()));
+});
+
+resolver.define('setGate', async ({ payload }) => {
+  if (!(await isAdmin())) throw new Error('Only Jira admins can manage workflows.');
+  await setGate(jiraAs(api.asUser()), String(payload.workflowId), Boolean(payload.on));
+  return listWorkflows(jiraAs(api.asUser()));
 });
 
 export const handler = resolver.getDefinitions();

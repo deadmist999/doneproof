@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Box, Button, Form, FormFooter, FormSection, Heading, HelperMessage, Label, Range, SectionMessage, Select, Spinner, Stack, Text, Textfield, Toggle, Inline, useForm, xcss } from '@forge/react';
+import ForgeReconciler, { Box, Button, DynamicTable, Lozenge, LoadingButton, Form, FormFooter, FormSection, Heading, HelperMessage, Label, Range, SectionMessage, Select, Spinner, Stack, Text, Textfield, Toggle, Inline, useForm, xcss } from '@forge/react';
 import { invoke } from '@forge/bridge';
 
 const page = xcss({ maxWidth: '640px' });
@@ -10,6 +10,51 @@ const RULES = [
   ['requireSubtasksDone', 'All subtasks must be done'],
   ['requireBlockersDone', 'Blocking work items must be done'],
 ];
+
+function Workflows() {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => { invoke('getWorkflows').then(setRows).catch((e) => setError(e.message)); }, []);
+
+  const toggle = async (w) => {
+    setBusy(w.id);
+    setError(null);
+    try {
+      setRows(await invoke('setGate', { workflowId: w.id, on: !w.gated }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Stack space="space.100">
+      <Heading size="small">Done gate on workflows</Heading>
+      <Text>Turning the gate on adds the Doneproof validator to every transition into a Done status of that workflow.</Text>
+      {error && <SectionMessage appearance="error">{error}</SectionMessage>}
+      {!rows ? <Spinner label="Loading workflows" /> : (
+        <DynamicTable
+          head={{ cells: [{ key: 'name', content: 'Workflow' }, { key: 'done', content: 'Transitions into Done' }, { key: 'state', content: 'Gate' }, { key: 'action', content: '' }] }}
+          rows={rows.map((w) => ({
+            key: w.id,
+            cells: [
+              { key: 'name', content: w.name },
+              { key: 'done', content: w.doneTransitions.join(', ') },
+              { key: 'state', content: <Lozenge appearance={w.gated ? 'success' : 'default'}>{w.gated ? 'On' : 'Off'}</Lozenge> },
+              { key: 'action', content: w.editable
+                ? <LoadingButton isLoading={busy === w.id} onClick={() => toggle(w)}>{w.gated ? 'Turn off' : 'Turn on'}</LoadingButton>
+                : <Text size="small" color="color.text.subtle">System workflow</Text> },
+            ],
+          }))}
+          emptyView="No workflows with a Done status found."
+        />
+      )}
+    </Stack>
+  );
+}
 
 function App() {
   const [config, setConfig] = useState(null);
@@ -42,8 +87,9 @@ function App() {
       <Stack space="space.300">
         <Stack space="space.100">
           <Heading size="medium">Doneproof settings</Heading>
-          <Text>Doneproof asks an AI model whether the evidence on a work item proves each acceptance criterion, then a workflow validator blocks the move to Done until it does. Add “Doneproof gate” as a validator on your Done transition to turn the gate on.</Text>
+          <Text>Doneproof asks an AI model whether the evidence on a work item proves each acceptance criterion, then a workflow validator blocks the move to Done until it does. Turn the gate on for the workflows your teams use below.</Text>
         </Stack>
+        <Workflows />
         {saved && <SectionMessage appearance={saved.ok ? 'success' : 'error'}>{saved.ok ? 'Settings saved.' : saved.message}</SectionMessage>}
         <Form onSubmit={handleSubmit(submit)}>
           <FormSection>
