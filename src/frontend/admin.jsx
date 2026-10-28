@@ -128,7 +128,7 @@ function App() {
             <Heading size="small">GitHub</Heading>
             <Label labelFor={getFieldId('githubToken')}>Access token (optional)</Label>
             <Textfield {...register('githubToken')} type="password" placeholder={config.hasGithubToken ? 'Saved' : 'Needed for private repositories'} />
-            <HelperMessage>Public pull requests work without a token.</HelperMessage>
+            <HelperMessage>Public repositories work out of the box. Add a token with read access for private repositories.</HelperMessage>
           </FormSection>
           <FormSection>
             <Heading size="small">Done gate</Heading>

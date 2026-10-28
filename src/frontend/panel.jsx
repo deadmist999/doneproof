@@ -47,7 +47,9 @@ function Evidence({ evidence }) {
         <Inline key={p.url} space="space.100" alignBlock="center">
           <Link href={p.url} openNewTab>{`PR #${p.url.split('/').pop()}`}</Link>
           <Lozenge appearance={p.state === 'merged' ? 'success' : p.state === 'unknown' ? 'removed' : 'inprogress'}>{p.state}</Lozenge>
-          {p.ci !== undefined && <Lozenge appearance={p.ci === 'passed' ? 'success' : p.ci === 'failed' ? 'removed' : 'default'}>{`CI ${p.ci}`}</Lozenge>}
+          {p.state === 'unknown'
+            ? <Text size="small" color="color.text.danger">{p.error}</Text>
+            : <Lozenge appearance={p.ci === 'passed' ? 'success' : p.ci === 'failed' ? 'removed' : 'default'}>{`CI ${p.ci}`}</Lozenge>}
           {p.approvals > 0 && <Text size="small">{`${p.approvals} approval${p.approvals > 1 ? 's' : ''}`}</Text>}
         </Inline>
       ))}

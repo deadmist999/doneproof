@@ -39,6 +39,10 @@ export function evaluate({ item, evidence, basis, fingerprint }, verdict, rules 
       detail: !verdict ? '—' : verdict.fingerprint === fingerprint ? 'Up to date' : staleDetail(verdict.basis, basis),
     },
   ];
+  const unreadable = prs.filter((p) => p.state === 'unknown');
+  if (unreadable.length) {
+    checks.push({ id: 'github', label: 'Linked pull requests could be read from GitHub', ok: false, detail: `Unreadable: ${unreadable.map(prName).join(', ')}` });
+  }
   if (rules.requireMergedPrs && prs.length) {
     const open = prs.filter((p) => p.state !== 'merged');
     checks.push({ id: 'merged', label: 'Linked pull requests are merged', ok: !open.length, detail: open.length ? `Not merged: ${open.map(prName).join(', ')}` : `${prs.length} merged` });

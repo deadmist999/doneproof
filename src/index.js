@@ -59,7 +59,7 @@ async function verdictOf(key, jira) {
 
 async function gather(key, actor) {
   const jira = jiraAs(actor);
-  const github = githubWith(await kvs.getSecret('github-token'));
+  const github = githubWith((await kvs.getSecret('github-token')) || process.env.DONEPROOF_GITHUB_TOKEN);
   const [state, verdict, config] = await Promise.all([collect(key, { jira, github }), verdictOf(key, jira), settings()]);
   return { state, verdict, config };
 }
@@ -157,6 +157,8 @@ export async function workerHandler(event) {
   const { key, accountId } = event.body;
   try {
     const { state, config } = await gather(key, api.asApp());
+    const unreadable = state.evidence.pullRequests.filter((p) => p.state === 'unknown');
+    if (unreadable.length) throw new Error(`${unreadable[0].error} for ${unreadable.map((p) => `PR #${p.url.split('/').pop()}`).join(', ')}. Verifying without it would judge the work blind; try again in a minute, or add a GitHub token in Doneproof settings.`);
     const ai = await aiConfig(config);
     if (!ai) throw new Error('No AI provider is configured. An admin can add a key in Doneproof settings.');
     const result = await assess(ai, state.item, state.evidence, fetch);

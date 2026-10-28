@@ -71,7 +71,7 @@ async function pullRequest(url, github) {
       changes,
     };
   } catch (error) {
-    return { url, state: 'unknown', error: `Could not read this pull request from GitHub: ${error.message}` };
+    return { url, state: 'unknown', ci: 'unknown', approvals: 0, error: `Could not read this pull request from GitHub (${error.message})` };
   }
 }
 

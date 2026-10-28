@@ -70,3 +70,9 @@ test('changesSince names what moved since the verdict', () => {
   assert.deepEqual(changesSince(before, now), ['1 new comment', 'PR #1: open → merged', 'PR #1 CI: failed → passed', 'S-2 is now Done']);
   assert.deepEqual(changesSince(before, before), []);
 });
+
+test('an unreadable pull request blocks the gate', () => {
+  const r = evaluate(state({ pullRequests: [{ url: 'x/pull/1', state: 'unknown', ci: 'unknown' }] }), verdict);
+  assert.equal(r.ready, false);
+  assert.equal(r.checks.find((c) => c.id === 'github').ok, false);
+});
