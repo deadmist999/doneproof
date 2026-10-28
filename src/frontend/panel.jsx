@@ -135,7 +135,7 @@ function App() {
       {!data.aiReady && (
         <SectionMessage appearance="information" title="Connect an AI provider">
           <Text>An admin needs to add an API key in Doneproof settings before work items can be verified.</Text>
-          <Button appearance="link" onClick={() => router.open('/jira/settings/apps')}>Open app settings</Button>
+          <Button appearance="link" onClick={() => router.navigate({ target: 'module', moduleKey: 'doneproof-settings' })}>Open app settings</Button>
         </SectionMessage>
       )}
       {item.criteria.length
