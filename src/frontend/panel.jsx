@@ -115,7 +115,10 @@ function App() {
     return () => clearTimeout(timer);
   }, [data]);
 
-  const verify = () => invoke('verify').then(setData).catch((e) => setFailure(e.message));
+  const verify = () => {
+    setData({ ...data, job: { status: 'running' } });
+    invoke('verify').then(setData).catch((e) => setFailure(e.message));
+  };
 
   if (failure) return <SectionMessage appearance="error" title="Doneproof couldn't load">{failure}</SectionMessage>;
   if (!data) return <Spinner label="Collecting evidence" />;
