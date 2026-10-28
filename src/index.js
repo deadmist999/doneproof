@@ -160,7 +160,8 @@ export async function workerHandler(event) {
     const ai = await aiConfig(config);
     if (!ai) throw new Error('No AI provider is configured. An admin can add a key in Doneproof settings.');
     const result = await assess(ai, state.item, state.evidence, fetch);
-    const verdict = { ...result, fingerprint: state.fingerprint, basis: state.basis, verifiedAt: new Date().toISOString(), verifiedBy: accountId };
+    const allProven = result.criteria.every((c) => c.passed) ? 'yes' : 'no';
+    const verdict = { ...result, allProven, fingerprint: state.fingerprint, basis: state.basis, verifiedAt: new Date().toISOString(), verifiedBy: accountId };
     const saved = await api.asApp().requestJira(route`/rest/api/3/issue/${key}/properties/${PROPERTY}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

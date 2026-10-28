@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ForgeReconciler, { Box, Button, DynamicTable, Lozenge, LoadingButton, Form, FormFooter, FormSection, Heading, HelperMessage, Label, Range, SectionMessage, Select, Spinner, Stack, Text, Textfield, Toggle, Inline, useForm, xcss } from '@forge/react';
-import { invoke } from '@forge/bridge';
+import { invoke, router } from '@forge/bridge';
 
 const page = xcss({ maxWidth: '640px' });
 
@@ -56,6 +56,26 @@ function Workflows() {
   );
 }
 
+const REPORTS = [
+  ['Closed without proof', 'statusCategory = Done AND (doneproofProven != "yes" OR doneproofProven IS EMPTY) ORDER BY updated DESC'],
+  ['Proven in the last 30 days', 'doneproofProven = "yes" AND doneproofVerifiedAt >= -30d ORDER BY updated DESC'],
+  ['Low-confidence verdicts', 'doneproofConfidence < 0.8 ORDER BY updated DESC'],
+];
+
+function Reports() {
+  return (
+    <Stack space="space.100">
+      <Heading size="small">Reports</Heading>
+      <Text>Verdicts are indexed, so they work in JQL: doneproofProven, doneproofConfidence and doneproofVerifiedAt.</Text>
+      <Inline space="space.100">
+        {REPORTS.map(([label, jql]) => (
+          <Button key={label} onClick={() => router.navigate(`/issues/?jql=${encodeURIComponent(jql)}`)}>{label}</Button>
+        ))}
+      </Inline>
+    </Stack>
+  );
+}
+
 function App() {
   const [config, setConfig] = useState(null);
   const [saved, setSaved] = useState(null);
@@ -90,6 +110,7 @@ function App() {
           <Text>Doneproof asks an AI model whether the evidence on a work item proves each acceptance criterion, then a workflow validator blocks the move to Done until it does. Turn the gate on for the workflows your teams use below.</Text>
         </Stack>
         <Workflows />
+        <Reports />
         {saved && <SectionMessage appearance={saved.ok ? 'success' : 'error'}>{saved.ok ? 'Settings saved.' : saved.message}</SectionMessage>}
         <Form onSubmit={handleSubmit(submit)}>
           <FormSection>

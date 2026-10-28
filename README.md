@@ -37,12 +37,14 @@ If anything can't be evaluated, the transition is blocked rather than allowed.
 - **Issue panel** (UI Kit): criteria with ✓/✕ and a one-sentence reason each, the evidence found, and the gate checklist.
 - **Workflow validator** "Doneproof gate": add it to the Done transition.
 - **Rovo agent** "Doneproof" with two actions, *Check if a work item is done* and *Verify a work item*, on sites with Rovo. The same actions are exposed as **MCP tools** (`rovo:mcp`) so other agents can ask whether work is really done.
-- **Settings page** (Jira admin → Apps → Doneproof settings): AI provider, API key, optional GitHub token for private repositories, confidence threshold, and which rules apply.
+- **Settings page** (Jira admin → Apps → Doneproof settings): turn the gate on per workflow with one click, AI provider and API key, optional GitHub token for private repositories, confidence threshold, and which rules apply.
+- **JQL on verdicts**: `doneproofProven`, `doneproofConfidence` and `doneproofVerifiedAt` are indexed, so filters and dashboards can show, for example, work closed without proof: `statusCategory = Done AND (doneproofProven != "yes" OR doneproofProven IS EMPTY)`.
+- **History**: every verification is kept, so the panel shows how a work item went from 0 of 3 to 3 of 3 proven.
 
 ## Install and set up
 
 1. Install Doneproof on your Jira Cloud site.
-2. In **Jira settings → Work items → Workflows**, edit the workflow, open the transition to **Done**, add a validator and choose **Doneproof gate**.
+2. Open **Jira settings → Apps → Doneproof settings** and click **Turn on** next to the workflows your teams use. Doneproof adds its validator to every transition into a Done status. (You can also add the **Doneproof gate** validator by hand in the workflow editor.)
 3. Write acceptance criteria as a bullet list under an **Acceptance criteria** heading in the description, and link the pull request (paste its URL as a link or in a comment).
 4. Open the **Doneproof** panel on the work item and click **Verify with AI**.
 
@@ -61,7 +63,7 @@ forge deploy && forge install  # needs the Forge CLI and an Atlassian developer 
 forge variables set --encrypt DONEPROOF_AI_KEY <gemini key>   # optional built-in provider
 ```
 
-Code map: `src/lib/adf.js` (criteria from the description), `src/lib/evidence.js` (Jira + GitHub evidence and the fingerprint), `src/lib/verifier.js` (AI call and fail-closed normalisation), `src/lib/policy.js` (the gate), `src/index.js` (resolvers, queue worker, validator, Rovo actions), `src/frontend/` (panel and settings).
+Code map: `src/lib/adf.js` (criteria from the description), `src/lib/evidence.js` (Jira + GitHub evidence and the fingerprint), `src/lib/verifier.js` (AI call and fail-closed normalisation), `src/lib/policy.js` (the gate), `src/lib/workflows.js` (one-click gate setup), `src/index.js` (resolvers, queue worker, validator, Rovo actions), `src/frontend/` (panel and settings).
 
 A demo repository with a real pull request and CI is at [deadmist999/shop-checkout-demo](https://github.com/deadmist999/shop-checkout-demo).
 

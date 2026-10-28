@@ -69,6 +69,20 @@ modules:
       tools:
         - check-done-status
         - request-verification
+  jira:entityProperty:
+    - key: doneproof-verdict-index
+      entityType: issue
+      propertyKey: doneproof
+      values:
+        - path: allProven
+          type: string
+          searchAlias: doneproofProven
+        - path: confidence
+          type: number
+          searchAlias: doneproofConfidence
+        - path: verifiedAt
+          type: date
+          searchAlias: doneproofVerifiedAt
   consumer:
     - key: doneproof-verify-consumer
       queue: doneproof-verify
